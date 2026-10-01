@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+
+# Secrets / local config
+.env
+.env.*
+!.env.example
+*.pem
+cookies*.txt
+
+# Downloaded media and temp work dirs
+work/
+downloads/
+*.part
+*.ytdl
+*.mp3
+*.m4a
+*.opus
+*.flac
+*.mp4
+*.webm
+*.mkv
+*.zip
+
+# Test artifacts
+test-results/
+playwright-report/
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
