@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Universal Media Downloader</title>
+<meta name="description" content="Download your own, public-domain or Creative Commons media from YouTube and SoundCloud. Spotify links are resolved to public sources by metadata only.">
+<meta name="theme-color" content="#0f172a">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path fill='%236366f1' d='M12 3v10.6l3.3-3.3 1.4 1.4L12 16.4l-4.7-4.7 1.4-1.4 3.3 3.3V3h2zM5 19h14v2H5z'/></svg>">
+<link rel="stylesheet" href="style.css">
+<script src="config.js"></script>
+<script src="app.js" defer></script>
+</head>
+<body>
+<header class="top">
+  <h1>Universal Media Downloader</h1>
+  <button id="theme" class="icon-btn" type="button" aria-label="Toggle dark/light theme">◐</button>
+</header>
+
+<main>
+  <div id="server" class="banner" hidden></div>
+
+  <form id="analyze-form" class="card" autocomplete="off">
+    <label for="url">Paste media URL</label>
+    <div class="row">
+      <input id="url" type="url" inputmode="url" placeholder="https://..." required maxlength="2048">
+      <button id="analyze" class="primary" type="submit">Analyze</button>
+    </div>
+    <p class="hint">YouTube · SoundCloud · Spotify (metadata only)</p>
+  </form>
+
+  <div id="error" class="banner error" role="alert" hidden></div>
+
+  <section id="result" class="card" hidden>
+    <div class="media">
+      <img id="thumb" alt="" loading="lazy" referrerpolicy="no-referrer">
+      <div>
+        <h2 id="title"></h2>
+        <p class="meta"><span id="platform" class="badge"></span> <span id="duration"></span></p>
+        <p id="uploader" class="meta"></p>
+      </div>
+    </div>
+    <p id="notice" class="banner info" hidden></p>
+
+    <div id="options" class="options">
+      <label>Type
+        <select id="mode"><option value="audio">Audio</option><option value="video">Video</option></select>
+      </label>
+      <label>Format <select id="format"></select></label>
+      <label id="quality-wrap">Quality <select id="quality"></select></label>
+    </div>
+    <p id="size" class="hint"></p>
+
+    <div id="playlist" hidden>
+      <div class="list-head">
+        <label class="check"><input id="select-all" type="checkbox" checked> Select all</label>
+        <span id="selected-count"></span>
+      </div>
+      <p id="limit-warning" class="banner warn" hidden></p>
+      <ol id="entries" class="entries"></ol>
+    </div>
+
+    <button id="download" class="primary wide" type="button">Download</button>
+  </section>
+
+  <section id="jobs"></section>
+
+  <details class="card small">
+    <summary>Acceptable use &amp; limits</summary>
+    <p>Only download content you own, have permission to download, or that is public domain / Creative Commons.
+      This service does not bypass DRM, logins, paywalls, age or region restrictions. Spotify audio is never downloaded:
+      Spotify links are only used to read track names, and any file you get comes from the public source you pick.</p>
+    <p id="limits"></p>
+    <p>Files are deleted automatically from the server after a short time. Source code:
+      <a href="https://github.com/hadezkz002/universal-media-downloader">GitHub</a>.</p>
+  </details>
+</main>
+
+<template id="job-tpl">
+  <article class="card job">
+    <div class="job-head">
+      <strong class="job-title"></strong>
+      <span class="pill"></span>
+    </div>
+    <div class="bar"><div></div></div>
+    <p class="job-error error-text" hidden></p>
+    <ul class="job-files"></ul>
+    <div class="job-actions">
+      <a class="primary zip" hidden>Download ZIP</a>
+      <button class="retry" type="button" hidden>Retry</button>
+      <button class="remove" type="button">Remove</button>
+    </div>
+  </article>
+</template>
+</body>
+</html>
