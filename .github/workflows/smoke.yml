@@ -24,18 +24,19 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-      - name: Wait until the backend runs the latest backend commit
+      - name: Wait until the deployed backend matches this commit's backend code
         run: |
-          # Render only redeploys when backend/ or render.yaml change.
-          SHA=$(git log -1 --format=%H -- backend render.yaml)
-          echo "expected backend commit: $SHA"
+          # Render redeploys only when backend/ or render.yaml change, so compare code, not commit IDs.
           for i in $(seq 1 60); do
             commit=$(curl -fsS --max-time 30 "$API_BASE_URL/api/health" | python3 -c "import sys,json; print(json.load(sys.stdin).get('commit',''))" || true)
             echo "backend commit: ${commit:-unknown}"
-            [ -n "$commit" ] && [ "${SHA#"$commit"}" != "$SHA" ] && exit 0
+            if [ -n "$commit" ] && full=$(git rev-parse --verify --quiet "$commit^{commit}") \
+                && git diff --quiet "$full" HEAD -- backend render.yaml; then
+              exit 0
+            fi
             sleep 20
           done
-          echo "Backend did not deploy ${SHA} in time"; exit 1
+          echo "Deployed backend does not match this commit"; exit 1
       - run: pip install playwright && python -m playwright install --with-deps chromium
       - name: Browser smoke test (desktop + Android viewport)
         run: python tests/ui_smoke.py "$FRONTEND_URL" screenshots
