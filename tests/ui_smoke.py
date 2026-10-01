@@ -77,12 +77,17 @@ def run(base: str, shots: Path | None) -> None:
                 page.screenshot(path=shots / f"{name}-playlist.png")
             job.locator(".remove").click()
 
-            # Canonical set with Go+ items: unavailable rows are disabled, not fatal.
+            # Canonical set: availability (Go+/region policy) depends on the server's region, so check that
+            # the UI matches what the backend reported: unavailable rows disabled, banner shown only if needed.
             page.fill("#url", PLAYLIST)
             expect(page.locator("#detect")).to_contain_text("Playlist detected", timeout=120_000)
-            expect(page.locator("#availability")).to_contain_text("Unavailable")
-            assert page.locator("#entries input[type=checkbox]:disabled").count() >= 1
-            print(f"[{name}] unavailable items flagged")
+            unavailable = page.evaluate("current.unavailable_count")
+            assert page.locator("#entries input[type=checkbox]:disabled").count() == unavailable
+            if unavailable:
+                expect(page.locator("#availability")).to_contain_text(f"Unavailable: {unavailable}")
+            else:
+                expect(page.locator("#availability")).to_be_hidden()
+            print(f"[{name}] canonical set ok, unavailable items: {unavailable}")
 
             # Spotify: metadata only, no download button
             analyze(page, SPOTIFY)
