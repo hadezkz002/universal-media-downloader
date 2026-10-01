@@ -8,9 +8,11 @@ elsewhere. It never downloads audio from Spotify.
 Open the website, paste a URL, pick a format, download. No account, no install, no terminal.
 
 - **Website:** https://hadezkz002.github.io/universal-media-downloader/
-- **API:** see `API_BASE_URL` in the repository variables (Render free instance)
+- **API:** https://umd-api-7bx5.onrender.com/api/health (Render free instance)
 
-![Desktop](docs/screenshots/desktop-single.png)
+| Desktop | Android |
+|---|---|
+| ![Desktop](docs/screenshots/desktop-single.png) | ![Android playlist](docs/screenshots/android-playlist.png) |
 
 ## Supported platforms
 
@@ -201,7 +203,8 @@ If you deploy under another domain, update `ALLOWED_ORIGINS` on Render.
 
 ## Known limitations
 
-- YouTube from the free cloud server is unreliable (bot check) — see above.
+- YouTube from the free cloud server is unreliable. Observed on 2026-10-01: the Render instance got
+  HTTP 429 / bot-check responses from YouTube while the same requests worked from a residential IP.
 - A sleeping free instance loses all jobs and files; in-progress jobs are lost on restart.
 - Single instance, in-memory state: not horizontally scalable without adding shared storage.
 - Free instance has little CPU: MP3/Opus conversion of long items is slow; MP4/M4A at source codec is fastest.
