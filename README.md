@@ -18,8 +18,8 @@ Open the website, paste a URL, pick a format, download. No account, no install, 
 
 | Source | Status | Notes |
 |---|---|---|
-| SoundCloud track | **SUPPORTED** | Public tracks. MP3 / M4A / Opus / FLAC / original. |
-| SoundCloud set / playlist | **SUPPORTED** | Select items, numbered files, ZIP. Go+ (subscription-only) tracks are not available. |
+| SoundCloud track | **SUPPORTED** | Public tracks via `soundcloud.com`, `m.soundcloud.com` or `on.soundcloud.com` share links. MP3 / M4A / Opus / FLAC / original. |
+| SoundCloud set / playlist | **SUPPORTED** | Share links resolved automatically. Every item listed with title, artist, duration and artwork; Go+ / region-blocked items are shown as unavailable and skipped instead of failing the playlist. Numbered files, ZIP. |
 | YouTube video / Shorts | **PARTIAL** | Works locally and from residential IPs. From the cloud server YouTube often answers *"Sign in to confirm you're not a bot"*; this service does not use cookies, accounts or bot-check workarounds, so such videos fail with a clear message. |
 | YouTube playlist / channel | **PARTIAL** | Listing works; downloading each item is subject to the same bot check. Channel URLs use the *Videos* tab. |
 | Spotify track / album / playlist | **PARTIAL (metadata only)** | Title, artists, artwork and track list from Spotify's public embed. "Find source" searches SoundCloud and YouTube; you confirm a candidate and the file comes **from that source**, labelled as such. |
@@ -77,6 +77,16 @@ Why this stack (checked October 2026):
   Cloud Run (usage-based / trial plans with billing). GitHub Actions is not a web server.
 - One process, in-memory queue: no Redis, database or message broker is needed at this scale.
 
+Input handling: the page extracts the first http(s) URL from pasted text (quotes and trailing punctuation
+removed, query strings such as YouTube `list=` kept), shows a platform/type guess immediately and analyzes
+automatically after a 400 ms pause (previous requests are aborted). The server repeats the normalization
+and is the final authority.
+
+Share links (`on.soundcloud.com`) are resolved on the server before detection: HEAD requests hop by hop
+(max 5 hops, 10 s timeout), each connection pinned to an IP that was checked to be public (no second DNS
+lookup, so no DNS rebinding), and every `Location` re-validated against the host allowlist. Share-tracking
+parameters are dropped. yt-dlp then receives the canonical URL.
+
 Job lifecycle: `queued → downloading → processing / merging → zipping → ready | failed`.
 The browser polls `GET /api/jobs/{id}` every 1.5 s.
 
@@ -85,10 +95,10 @@ The browser polls `GET /api/jobs/{id}` every 1.5 s.
 | Method | Path | Purpose |
 |---|---|---|
 | GET | `/api/health` | Status, tool versions, public limits |
-| POST | `/api/analyze` `{url}` | Metadata, formats, approximate sizes, playlist items |
+| POST | `/api/analyze` `{url}` | `platform`, `media_type` (video / shorts / track / playlist / album / channel / profile), `original_url`, `resolved_url`, metadata, formats, sizes, `item_count`, `available_count`, `unavailable_count`, items |
 | POST | `/api/resolve` `{title, artist}` | Spotify resolver: candidate public sources |
 | POST | `/api/jobs` `{url, mode, format, quality, items?, playlist_title?}` | Start a job |
-| GET | `/api/jobs/{id}` | Status and progress |
+| GET | `/api/jobs/{id}` | Status, progress, `counts` (ready / failed / skipped) |
 | GET | `/api/jobs/{id}/files/{index}` | Download one file |
 | GET | `/api/jobs/{id}/zip` | Download all ready files as ZIP |
 | DELETE | `/api/jobs/{id}` | Cancel and delete files |
@@ -98,7 +108,7 @@ Job IDs are 128-bit random tokens; knowing the ID is what grants access to a job
 ## Security
 
 - Only `http`/`https`; no credentials in URLs; no custom ports; max URL length 2048.
-- **Exact host allowlist** (YouTube, SoundCloud, open.spotify.com). DNS is resolved and every address
+- **Exact host allowlist** (YouTube, SoundCloud, open.spotify.com; `api-v2.soundcloud.com` only for `/tracks/<id>`). DNS is resolved and every address
   must be public: loopback (127.0.0.0/8, ::1), RFC1918, CGNAT, link-local (incl. 169.254.169.254
   metadata), ULA (fc00::/7), multicast and IPv4-mapped variants are rejected.
 - yt-dlp runs with `--ignore-config` and `--use-extractors` limited to YouTube/SoundCloud extractors,
@@ -209,7 +219,8 @@ If you deploy under another domain, update `ALLOWED_ORIGINS` on Render.
 - Single instance, in-memory state: not horizontally scalable without adding shared storage.
 - Free instance has little CPU: MP3/Opus conversion of long items is slow; MP4/M4A at source codec is fastest.
 - Render free bandwidth is limited per month; heavy use will suspend the service until the next cycle.
-- SoundCloud playlist titles in the selection list come from URL slugs until the item is downloaded.
+- SoundCloud set item metadata relies on a small patch of yt-dlp internals (`backend/app/ytdlp_cli.py`); if a yt-dlp update breaks it, listings fall back to bare URLs but downloads keep working.
+- SoundCloud Go+ / region availability depends on where the server runs (the Render region may differ from yours).
 - Spotify metadata comes from the public embed page, which may change without notice.
 - Spotify short links (`spotify.link`) are not accepted; use the `open.spotify.com` URL.
 
