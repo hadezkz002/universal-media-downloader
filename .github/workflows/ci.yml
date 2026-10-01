@@ -38,7 +38,9 @@ jobs:
         with:
           node-version: "24"
       - name: JavaScript syntax check
-        run: node --check frontend/app.js && node --check frontend/config.js
+        run: node --check frontend/app.js && node --check frontend/detect.js && node --check frontend/config.js
+      - name: URL detection tests
+        run: node --test tests/*.test.js
       - name: Build site
         run: API_BASE_URL=https://example.invalid ./scripts/build-frontend.sh _site && test -s _site/index.html
 

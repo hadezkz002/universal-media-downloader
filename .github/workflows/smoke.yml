@@ -21,9 +21,17 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-      - name: Wake backend and check health
+      - name: Wait until the backend runs this commit
+        env:
+          SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
         run: |
-          for i in $(seq 1 20); do curl -fsS --max-time 30 "$API_BASE_URL/api/health" && exit 0; sleep 10; done; exit 1
+          for i in $(seq 1 60); do
+            commit=$(curl -fsS --max-time 30 "$API_BASE_URL/api/health" | python3 -c "import sys,json; print(json.load(sys.stdin).get('commit',''))" || true)
+            echo "backend commit: ${commit:-unknown}"
+            [ -n "$commit" ] && [ "${SHA#"$commit"}" != "$SHA" ] && exit 0
+            sleep 20
+          done
+          echo "Backend did not deploy ${SHA} in time"; exit 1
       - run: pip install playwright && python -m playwright install --with-deps chromium
       - name: Browser smoke test (desktop + Android viewport)
         run: python tests/ui_smoke.py "$FRONTEND_URL" screenshots

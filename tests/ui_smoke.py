@@ -10,7 +10,8 @@ from pathlib import Path
 from playwright.sync_api import expect, sync_playwright
 
 SOUNDCLOUD = "https://soundcloud.com/unwritten-stories/overthinking-creative-commons-free-happy-electronic-music"
-PLAYLIST = "https://soundcloud.com/the-concept-band/sets/the-royal-concept-ep"  # listing only, nothing downloaded
+PLAYLIST = "https://soundcloud.com/the-concept-band/sets/the-royal-concept-ep"  # listing only, has Go+ (unavailable) items
+SHORT_PLAYLIST = "https://on.soundcloud.com/7Zj8Us1gsTJhqOWXvl"  # share link to a public set
 SPOTIFY = "https://open.spotify.com/track/4uLU6hMCjMI75M1A2tKUQC"
 
 
@@ -48,19 +49,38 @@ def run(base: str, shots: Path | None) -> None:
             if shots:
                 page.screenshot(path=shots / f"{name}-single.png", full_page=True)
 
-            # Playlist listing + selection limit message
-            analyze(page, PLAYLIST)
+            # Paste share text with a short link: no Analyze click; detection + resolve + playlist mode.
+            page.fill("#url", f"abc {SHORT_PLAYLIST} xyz")
+            expect(page.locator("#detect")).to_contain_text("SoundCloud")
+            expect(page.locator("#detect")).to_contain_text("Playlist detected", timeout=120_000)
             expect(page.locator("#playlist")).to_be_visible()
             count = page.locator("#entries input[type=checkbox]").count()
+            assert count > 1, count
             page.uncheck("#select-all")
             expect(page.locator("#selected-count")).to_have_text("Selected: 0")
             page.check("#select-all")
             if count > 25:
                 expect(page.locator("#limit-warning")).to_be_visible()
                 assert page.locator("#download").is_disabled()
-            print(f"[{name}] playlist listed {count} items, limit warning ok")
+            page.uncheck("#select-all")
+            page.locator("#entries input[type=checkbox]").first.check()
+            page.click("#download")
+            job = page.locator(".job").first
+            expect(job.locator(".pill")).to_have_text("Ready", timeout=300_000)
+            expect(job.locator(".job-files a")).to_have_count(1)
+            with page.expect_download(timeout=60_000) as dl:
+                job.locator(".job-files a").first.click()
+            print(f"[{name}] short-link playlist: {count} items listed, downloaded {dl.value.suggested_filename}")
             if shots:
                 page.screenshot(path=shots / f"{name}-playlist.png")
+            job.locator(".remove").click()
+
+            # Canonical set with Go+ items: unavailable rows are disabled, not fatal.
+            page.fill("#url", PLAYLIST)
+            expect(page.locator("#detect")).to_contain_text("Playlist detected", timeout=120_000)
+            expect(page.locator("#availability")).to_contain_text("Unavailable")
+            assert page.locator("#entries input[type=checkbox]:disabled").count() >= 1
+            print(f"[{name}] unavailable items flagged")
 
             # Spotify: metadata only, no download button
             analyze(page, SPOTIFY)
@@ -68,10 +88,11 @@ def run(base: str, shots: Path | None) -> None:
             assert not page.locator("#download").is_visible()
             print(f"[{name}] spotify metadata ok")
 
-            # Friendly error, no traceback
+            # Friendly errors, no traceback
             page.fill("#url", "http://127.0.0.1/admin")
-            page.click("#analyze")
-            expect(page.locator("#error")).to_contain_text("Unsupported URL")
+            expect(page.locator("#detect")).to_contain_text("Unsupported site")
+            page.fill("#url", "https://on.soundcloud.com/doesnotexist-zzzz")
+            expect(page.locator("#error")).to_contain_text("invalid or has expired", timeout=60_000)
             assert not errors, errors
             ctx.close()
         browser.close()
