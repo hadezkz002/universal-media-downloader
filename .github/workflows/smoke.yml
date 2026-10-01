@@ -18,13 +18,17 @@ jobs:
       API_BASE_URL: ${{ vars.API_BASE_URL }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-      - name: Wait until the backend runs this commit
-        env:
-          SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+      - name: Wait until the backend runs the latest backend commit
         run: |
+          # Render only redeploys when backend/ or render.yaml change.
+          SHA=$(git log -1 --format=%H -- backend render.yaml)
+          echo "expected backend commit: $SHA"
           for i in $(seq 1 60); do
             commit=$(curl -fsS --max-time 30 "$API_BASE_URL/api/health" | python3 -c "import sys,json; print(json.load(sys.stdin).get('commit',''))" || true)
             echo "backend commit: ${commit:-unknown}"
