@@ -296,7 +296,9 @@ function updateSelection() {
   const max = limits ? limits.max_playlist_items : Infinity;
   $("selected-count").textContent = `Selected: ${n}`;
   const boxes = [...$("entries").querySelectorAll("input[type=checkbox]:not(:disabled)")];
-  $("select-all").checked = boxes.length > 0 && boxes.every((b) => b.checked);
+  const checkedCount = boxes.filter((b) => b.checked).length;
+  $("select-all").checked = boxes.length > 0 && checkedCount === boxes.length;
+  $("select-all").indeterminate = checkedCount > 0 && checkedCount < boxes.length;
   const over = n > max;
   $("limit-warning").hidden = !over;
   $("limit-warning").textContent = over

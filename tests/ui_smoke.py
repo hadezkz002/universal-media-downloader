@@ -56,13 +56,15 @@ def run(base: str, shots: Path | None) -> None:
             expect(page.locator("#playlist")).to_be_visible()
             count = page.locator("#entries input[type=checkbox]").count()
             assert count > 1, count
-            page.uncheck("#select-all")
-            expect(page.locator("#selected-count")).to_have_text("Selected: 0")
+            if count > 25:  # pre-selected up to the server limit, "Select all" shows a partial state
+                expect(page.locator("#selected-count")).to_have_text("Selected: 25")
+                assert page.evaluate("document.getElementById('select-all').indeterminate")
             page.check("#select-all")
             if count > 25:
                 expect(page.locator("#limit-warning")).to_be_visible()
                 assert page.locator("#download").is_disabled()
             page.uncheck("#select-all")
+            expect(page.locator("#selected-count")).to_have_text("Selected: 0")
             page.locator("#entries input[type=checkbox]").first.check()
             page.click("#download")
             job = page.locator(".job").first
