@@ -68,6 +68,7 @@ class Job:
             "id": self.id, "status": self.status, "progress": round(self.progress, 1), "error": self.error,
             "mode": self.mode, "format": self.fmt, "quality": self.quality,
             "expires_at": self.finished + settings.file_ttl if self.finished else None,
+            "counts": {state: sum(1 for it in self.items if it.status == state) for state in ("ready", "failed", "skipped")},
             "items": [{"index": i, "title": it.title, "status": it.status, "error": it.error, "name": it.name,
                        "size": it.size} for i, it in enumerate(self.items)],
             "zip": {"name": self.zip_name, "size": self.zip_path.stat().st_size} if self.zip_path else None,
@@ -121,7 +122,7 @@ class JobManager:
                     return
                 remaining = deadline - time.monotonic()
                 if remaining <= 5:
-                    item.status, item.error = "failed", "Job time limit reached."
+                    item.status, item.error = "skipped", "Skipped: job time limit reached."
                     continue
 
                 def progress(stage: str, frac: float | None, n=n, item=item) -> None:
@@ -152,7 +153,7 @@ class JobManager:
                 return
             done = [it for it in job.items if it.status == "ready"]
             if not done:
-                job.status, job.error = "failed", job.items[0].error if total == 1 else "No item could be downloaded."
+                job.status, job.error = "failed", job.items[0].error if total == 1 else f"No item could be downloaded ({job.items[0].error})"
                 return
             if len(done) > 1:
                 job.status = "zipping"

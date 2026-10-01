@@ -28,21 +28,21 @@ def test_analyze_rejects_bad_urls(client, url):
 
 
 def test_job_rejects_unknown_format_and_extra_args(client):
-    with mock.patch("app.main.validate_url", return_value=("https://www.youtube.com/watch?v=x", "youtube")):
+    with mock.patch("app.main.canonicalize", return_value=("https://www.youtube.com/watch?v=x", "youtube")):
         r = client.post("/api/jobs", json={"url": "https://www.youtube.com/watch?v=x", "mode": "audio", "format": "--exec"})
     assert r.status_code == 400
 
 
 def test_job_playlist_limit(client):
     urls = [f"https://www.youtube.com/watch?v={i}" for i in range(main.settings.max_playlist_items + 1)]
-    with mock.patch("app.main.validate_url", side_effect=lambda u: (u, "youtube")):
+    with mock.patch("app.main.canonicalize", side_effect=lambda u: (u, "youtube")):
         r = client.post("/api/jobs", json={"url": urls[0], "mode": "audio", "format": "mp3", "items": urls})
     assert r.status_code == 400
     assert "items per job" in r.json()["error"]
 
 
 def test_spotify_cannot_be_downloaded(client):
-    with mock.patch("app.main.validate_url", return_value=("https://open.spotify.com/track/x", "spotify")):
+    with mock.patch("app.main.canonicalize", return_value=("https://open.spotify.com/track/x", "spotify")):
         r = client.post("/api/jobs", json={"url": "https://open.spotify.com/track/x", "mode": "audio", "format": "mp3"})
     assert r.status_code == 400
 

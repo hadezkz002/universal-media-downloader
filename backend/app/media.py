@@ -42,10 +42,12 @@ _ERROR_MAP = [
     (r"is live|live event|livestream|is_live", "Live streams are not supported."),
     (r"larger than max-filesize|File is larger", f"File exceeds the server limit of {settings.max_download_size_mb} MB."),
     (r"does not pass filter", f"Media is longer than the server limit of {settings.max_video_duration // 60} minutes."),
-    (r"Unsupported URL|no suitable extractor", "Unsupported URL."),
+    (r"Unsupported URL|no suitable extractor", "Unsupported URL (no supported extractor for this link)."),
     (r"Requested format is not available", "The requested format/quality is not available for this media."),
     (r"Video unavailable|has been removed|does not exist|HTTP Error 404|not available", "Media unavailable."),
+    (r"\[soundcloud[^]]*\].*(HTTP Error 429|Too Many Requests)", "SoundCloud temporarily blocked the request. Try again later."),
     (r"HTTP Error 429|Too Many Requests", "The source site is rate-limiting this server. Try again later."),
+    (r"ExtractorError|Unable to extract", "yt-dlp extractor failed for this link. Try again later."),
 ]
 
 
@@ -57,7 +59,7 @@ def friendly_error(output: str) -> str:
 
 
 def base_args() -> list[str]:
-    args = [sys.executable, "-m", "yt_dlp", "--ignore-config", "--no-cache-dir", "--use-extractors", ALLOWED_EXTRACTORS,
+    args = [sys.executable, str(Path(__file__).with_name("ytdlp_cli.py")), "--ignore-config", "--no-cache-dir", "--use-extractors", ALLOWED_EXTRACTORS,
             "--socket-timeout", "20", "--retries", "3", "--no-mtime", "--no-color"]
     for runtime in settings.js_runtimes:
         args += ["--js-runtimes", runtime]
@@ -153,6 +155,32 @@ def _entry_title(entry: dict) -> str:
     return slug.replace("-", " ").strip().title() or "Untitled"
 
 
+_SC_POLICY_UNAVAILABLE = {"BLOCK": "Blocked by SoundCloud in the server's region.",
+                          "SNIP": "SoundCloud Go+ track (only a preview is public)."}
+_YT_UNAVAILABLE_TITLES = {"[Private video]", "[Deleted video]", "[Unavailable video]"}
+
+
+def _entry_unavailable(e: dict) -> str | None:
+    if reason := _SC_POLICY_UNAVAILABLE.get(e.get("sc_policy") or ""):
+        return reason
+    if e.get("title") in _YT_UNAVAILABLE_TITLES or e.get("availability") in ("private", "needs_auth", "subscriber_only", "premium_only"):
+        return "Private, deleted or requires sign-in."
+    if e.get("duration") and e["duration"] > settings.max_video_duration:
+        return f"Longer than the server limit ({settings.max_video_duration // 60} min)."
+    return None
+
+
+def media_type(platform: str, info: dict, url: str) -> str:
+    path = urlsplit(url).path
+    if not (info.get("_type") == "playlist" or "entries" in info):
+        return "shorts" if "/shorts/" in path else "video" if platform == "youtube" else "track"
+    if platform == "soundcloud":
+        if "user" in (info.get("extractor") or ""):
+            return "profile"
+        return "album" if info.get("album_type") == "album" else "playlist"
+    return "channel" if re.match(r"^/(@|channel/|c/|user/)", path) else "playlist"
+
+
 def analyze(url: str, platform: str) -> dict:
     if platform == "spotify":
         return spotify_metadata(url)
@@ -166,10 +194,11 @@ def analyze(url: str, platform: str) -> dict:
                 "title": tab.get("title") or info.get("title")}
     result = {
         "platform": platform,
+        "media_type": media_type(platform, info, url),
         "title": info.get("title") or "Untitled",
         "uploader": info.get("artist") or info.get("uploader") or info.get("channel"),
         "thumbnail": _thumb(info),
-        "webpage_url": info.get("webpage_url") or url,
+        "webpage_url": url,
         "downloadable": True,
     }
     if info.get("_type") == "playlist" or "entries" in info:
@@ -177,17 +206,21 @@ def analyze(url: str, platform: str) -> dict:
         for i, e in enumerate(info.get("entries") or [], 1):
             if not e or not e.get("url"):
                 continue
-            items.append({"index": i, "url": e["url"], "title": _entry_title(e),
+            reason = _entry_unavailable(e)
+            items.append({"index": i, "id": e.get("id"), "url": e["url"], "title": _entry_title(e),
                           "uploader": e.get("uploader") or e.get("channel"), "duration": e.get("duration"),
-                          "too_long": bool(e.get("duration") and e["duration"] > settings.max_video_duration)})
+                          "thumbnail": e.get("thumbnail") or _thumb(e), "available": reason is None,
+                          "unavailable_reason": reason})
         total = info.get("playlist_count") or len(items)
-        result.update(kind="playlist", count=total, entries=items, truncated=total > len(items),
+        available = sum(1 for it in items if it["available"])
+        result.update(kind="playlist", count=total, item_count=total, entries=items, truncated=total > len(items),
+                      available_count=available, unavailable_count=len(items) - available,
                       has_video=platform == "youtube")
         return result
     if info.get("is_live") or info.get("live_status") in ("is_live", "is_upcoming"):
         raise MediaError("Live streams are not supported.")
     duration = info.get("duration")
-    result.update(kind="single", id=info.get("id"), duration=duration,
+    result.update(kind="single", id=info.get("id"), duration=duration, item_count=1,
                   too_long=bool(duration and duration > settings.max_video_duration),
                   **_format_summary(info))
     return result
@@ -227,6 +260,7 @@ def spotify_metadata(url: str) -> dict:
     return {
         "platform": "spotify",
         "kind": "spotify",
+        "media_type": kind,
         "spotify_type": kind,
         "title": entity.get("title") or entity.get("name"),
         "uploader": artists,
@@ -234,6 +268,7 @@ def spotify_metadata(url: str) -> dict:
         "thumbnail": images[-1]["url"] if images else None,
         "webpage_url": f"https://open.spotify.com/{kind}/{item_id}",
         "count": len(entries),
+        "item_count": len(entries),
         "entries": entries,
         "downloadable": False,
         "notice": "Spotify audio is DRM-protected and is never downloaded. Use 'Find source' to look for a "

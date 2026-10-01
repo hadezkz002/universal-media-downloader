@@ -1,6 +1,7 @@
 """HTTP API for Universal Media Downloader."""
 
 import logging
+import os
 import re
 import shutil
 from contextlib import asynccontextmanager
@@ -17,7 +18,7 @@ from yt_dlp.version import __version__ as ytdlp_version
 from . import media
 from .config import settings
 from .jobs import Busy, Item, JobManager
-from .security import InvalidURL, RateLimiter, validate_url
+from .security import InvalidURL, RateLimiter, canonicalize
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 log = logging.getLogger("umd.api")
@@ -100,8 +101,9 @@ def rate_limit(request: Request, bucket: str, limit: int, window: float) -> str:
 
 
 def checked_url(raw: str) -> tuple[str, str]:
+    """normalize -> validate -> resolve share-link redirects (re-validated per hop) -> canonical URL."""
     try:
-        return validate_url(raw)
+        return canonicalize(raw)
     except InvalidURL as exc:
         raise HTTPException(400, str(exc)) from None
 
@@ -112,6 +114,7 @@ def checked_url(raw: str) -> tuple[str, str]:
 def health():
     return {
         "status": "ok",
+        "commit": os.environ.get("RENDER_GIT_COMMIT", "")[:12],
         "yt_dlp": ytdlp_version,
         "ffmpeg": bool(shutil.which("ffmpeg")),
         "js_runtime": [r for r in settings.js_runtimes if shutil.which(r)],
@@ -132,7 +135,7 @@ async def analyze(body: AnalyzeRequest, request: Request):
         result = await run_in_threadpool(media.analyze, url, platform)
     except media.MediaError as exc:
         raise HTTPException(422, str(exc)) from None
-    result["limits"] = settings.public_limits()
+    result.update(original_url=body.url.strip(), resolved_url=url, limits=settings.public_limits())
     return result
 
 
