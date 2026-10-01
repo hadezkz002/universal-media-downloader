@@ -9,9 +9,8 @@ from pathlib import Path
 
 from playwright.sync_api import expect, sync_playwright
 
-SINGLE = "https://www.youtube.com/watch?v=jNQXAC9IVRw"  # "Me at the zoo", 19 s
 SOUNDCLOUD = "https://soundcloud.com/unwritten-stories/overthinking-creative-commons-free-happy-electronic-music"
-PLAYLIST = "https://www.youtube.com/@BlenderStudio"  # CC-licensed studio channel
+PLAYLIST = "https://soundcloud.com/the-concept-band/sets/the-royal-concept-ep"  # listing only, nothing downloaded
 SPOTIFY = "https://open.spotify.com/track/4uLU6hMCjMI75M1A2tKUQC"
 
 
@@ -37,7 +36,8 @@ def run(base: str, shots: Path | None) -> None:
                 page.screenshot(path=shots / f"{name}-home.png")
 
             # Single item, audio, end to end
-            analyze(page, SOUNDCLOUD if name == "android" else SINGLE)
+            # YouTube is often bot-checked from cloud IPs, so the live test downloads the CC SoundCloud track.
+            analyze(page, SOUNDCLOUD)
             page.select_option("#format", "mp3")
             page.click("#download")
             job = page.locator(".job").first
