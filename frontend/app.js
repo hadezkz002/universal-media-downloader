@@ -17,14 +17,15 @@ async function api(path, options = {}) {
   let res;
   try {
     res = await fetch(API + path, { ...options, headers: { "Content-Type": "application/json" } });
-  } catch {
+  } catch (err) {
+    if (err.name === "AbortError") throw err;
     throw new Error("Cannot reach the server. The free server may be waking up — please try again in a minute.");
   }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || `Server error (${res.status}). Please try again.`);
   return data;
 }
-const post = (path, body) => api(path, { method: "POST", body: JSON.stringify(body) });
+const post = (path, body, signal) => api(path, { method: "POST", body: JSON.stringify(body), signal });
 
 function fmtTime(s) {
   if (!s && s !== 0) return "";
@@ -89,25 +90,84 @@ async function checkServer() {
   banner.hidden = false;
 }
 
-// ---------------------------------------------------------------- analyze
-$("analyze-form").addEventListener("submit", async (e) => {
+// ---------------------------------------------------------------- input detection (UX only; the backend decides)
+const TYPE_LABEL = { video: "Video", shorts: "Shorts", playlist: "Playlist", album: "Album", track: "Track",
+  channel: "Channel", profile: "Profile" };
+
+function showDetect(platform, type, text, isError = false) {
+  const box = $("detect");
+  box.replaceChildren();
+  if (platform) box.append(el("span", { className: "badge", textContent: platformName[platform] || platform }));
+  if (type) box.append(el("span", { className: "badge", textContent: TYPE_LABEL[type] || type }));
+  if (text) box.append(el("span", { className: isError ? "error-text inline" : "dim", textContent: text }));
+  box.hidden = !box.childElementCount;
+}
+
+let pending = null;          // AbortController of the in-flight analyze
+let lastAnalyzed = "";
+let debounceTimer = 0;
+
+function onUrlInput() {
+  clearTimeout(debounceTimer);
+  debounceTimer = setTimeout(() => handleInput(false), 400);
+}
+
+function handleInput(force) {
+  const urls = extractUrls($("url").value);
+  $("multi").hidden = urls.length < 2;
+  if (!urls.length) {
+    showDetect(null, null, $("url").value.trim() ? "No valid http(s) URL found." : "", true);
+    return;
+  }
+  const url = urls[0];
+  const guess = detectLocal(url);
+  if (!guess) {
+    showDetect(null, null, "Unsupported site. Use YouTube, SoundCloud or Spotify links.", true);
+    return;
+  }
+  if (url === lastAnalyzed && !force) return;
+  showDetect(guess.platform, guess.type,
+    guess.shortLink ? "Resolving shared link…" : guess.type ? `${TYPE_LABEL[guess.type]} detected. Reading details…` : "Detecting…");
+  analyze(url);
+}
+
+["input", "paste", "change"].forEach((ev) => $("url").addEventListener(ev, onUrlInput));
+
+$("analyze-form").addEventListener("submit", (e) => {
   e.preventDefault();
+  clearTimeout(debounceTimer);
+  handleInput(true);
+});
+
+async function analyze(url) {
+  if (pending) pending.abort();
+  const controller = new AbortController();
+  pending = controller;
+  lastAnalyzed = url;
   const btn = $("analyze");
   showError("");
   $("result").hidden = true;
   btn.disabled = true;
   btn.textContent = "Analyzing…";
   try {
-    current = await post("/api/analyze", { url: $("url").value.trim() });
+    const result = await post("/api/analyze", { url }, controller.signal);
+    if (controller.signal.aborted) return;
+    current = result;
     limits = current.limits || limits;
     renderResult();
   } catch (err) {
+    if (err.name === "AbortError") return;
+    lastAnalyzed = "";
+    showDetect(detectLocal(url)?.platform, null, err.message, true);
     showError(err.message);
   } finally {
-    btn.disabled = false;
-    btn.textContent = "Analyze";
+    if (pending === controller) {
+      pending = null;
+      btn.disabled = false;
+      btn.textContent = "Analyze";
+    }
   }
-});
+}
 
 function renderResult() {
   const r = current;
@@ -115,13 +175,18 @@ function renderResult() {
   $("thumb").hidden = !safeImg(r.thumbnail);
   $("title").textContent = r.title || "Untitled";
   $("platform").textContent = platformName[r.platform] || r.platform;
-  $("duration").textContent = r.kind === "single" ? fmtTime(r.duration) : `${r.count} item${r.count === 1 ? "" : "s"}`;
+  const isSpotify = r.kind === "spotify";
+  const isPlaylist = r.kind === "playlist";
+  const unit = r.platform === "youtube" ? "video" : "track";
+  const countText = `${r.item_count ?? r.count} ${unit}${(r.item_count ?? r.count) === 1 ? "" : "s"}`;
+  $("duration").textContent = r.kind === "single" ? fmtTime(r.duration) : countText;
   $("uploader").textContent = r.uploader || "";
   $("notice").textContent = r.notice || "";
   $("notice").hidden = !r.notice;
+  let detail = r.kind === "single" ? `${r.title}${r.duration ? " · " + fmtTime(r.duration) : ""}` : countText;
+  if (isPlaylist && r.unavailable_count) detail += ` · Available: ${r.available_count} · Unavailable: ${r.unavailable_count}`;
+  showDetect(r.platform, r.media_type, `${TYPE_LABEL[r.media_type] || "Media"} detected · ${detail}`);
 
-  const isSpotify = r.kind === "spotify";
-  const isPlaylist = r.kind === "playlist";
   const canVideo = r.platform === "youtube" && (r.kind === "playlist" || r.has_video);
   setOptions($("mode"), [["audio", "Audio"], ["video", "Video", !canVideo]], $("mode").value);
   if (!canVideo) $("mode").value = "audio";
@@ -129,14 +194,23 @@ function renderResult() {
 
   $("playlist").hidden = !(isPlaylist || isSpotify);
   $("select-all").parentElement.hidden = isSpotify;
-  $("download").hidden = false;
-  $("download").textContent = isPlaylist ? "Download selected" : isSpotify ? "" : "Download";
-  if (isSpotify) $("download").hidden = true;
-  $("entries").replaceChildren(...(r.entries || []).map((it) => (isSpotify ? spotifyRow(it) : playlistRow(it))));
+  $("download").hidden = isSpotify;
+  $("download").textContent = isPlaylist ? "Download selected" : "Download";
+  // Pre-select available items up to the server limit, so a large playlist is downloadable in one click.
+  let budget = limits ? limits.max_playlist_items : Infinity;
+  $("entries").replaceChildren(...(r.entries || []).map((it) => {
+    if (isSpotify) return spotifyRow(it);
+    const ok = it.available !== false;
+    const row = playlistRow(it, ok && budget > 0);
+    if (ok) budget--;
+    return row;
+  }));
   if (r.truncated) {
     $("entries").append(el("li", { className: "dim", textContent: `Only the first ${r.entries.length} of ${r.count} items are listed.` }));
   }
-  $("select-all").checked = true;
+  $("availability").hidden = !(isPlaylist && r.unavailable_count);
+  $("availability").textContent = isPlaylist && r.unavailable_count
+    ? `Playlist: ${r.item_count} items · Available: ${r.available_count} · Unavailable: ${r.unavailable_count} (cannot be selected)` : "";
   updateSelection();
   if (r.kind === "single" && r.too_long) {
     showError(`This media is longer than the server limit (${Math.round(limits.max_video_duration / 60)} minutes).`);
@@ -144,14 +218,15 @@ function renderResult() {
   $("result").hidden = false;
 }
 
-function playlistRow(it) {
-  const box = el("input", { type: "checkbox", checked: !it.too_long, disabled: it.too_long });
+function playlistRow(it, checked) {
+  const ok = it.available !== false;
+  const box = el("input", { type: "checkbox", checked: ok && checked, disabled: !ok });
   box.dataset.url = it.url;
   box.addEventListener("change", updateSelection);
-  const dur = it.too_long ? "too long" : fmtTime(it.duration);
-  return el("li", {}, el("label", { className: "line" }, box,
-    el("span", { textContent: `${String(it.index).padStart(2, "0")}  ${it.title}` }),
-    el("span", { className: "dim", textContent: dur })));
+  const label = el("span", { textContent: `${String(it.index).padStart(2, "0")}  ${it.uploader ? it.uploader + " – " : ""}${it.title}` });
+  if (!ok) label.append(el("small", { className: "error-text block", textContent: it.unavailable_reason || "Unavailable" }));
+  return el("li", { className: ok ? "" : "unavailable" }, el("label", { className: "line" }, box, label,
+    el("span", { className: "dim", textContent: fmtTime(it.duration) })));
 }
 
 function spotifyRow(it) {
@@ -220,10 +295,12 @@ function updateSelection() {
   const n = selectedUrls().length;
   const max = limits ? limits.max_playlist_items : Infinity;
   $("selected-count").textContent = `Selected: ${n}`;
+  const boxes = [...$("entries").querySelectorAll("input[type=checkbox]:not(:disabled)")];
+  $("select-all").checked = boxes.length > 0 && boxes.every((b) => b.checked);
   const over = n > max;
   $("limit-warning").hidden = !over;
   $("limit-warning").textContent = over
-    ? `Playlist contains ${current.count} items. Public server limit: ${max} items/job. Please select up to ${max} items.` : "";
+    ? `Playlist contains ${current.count} items. Public server limit: ${max} items/job. Please select up to ${max} tracks.` : "";
   $("download").disabled = over || n === 0;
 }
 $("select-all").addEventListener("change", (e) => {
@@ -288,6 +365,9 @@ function renderJob(card, job) {
   errorBox.textContent = job.error || "";
   errorBox.hidden = !job.error;
   card.querySelector(".retry").hidden = job.status !== "failed";
+  const counts = card.querySelector(".job-counts");
+  counts.hidden = !(job.counts && job.items.length > 1);
+  if (job.counts) counts.textContent = `Done: ${job.counts.ready} · Failed: ${job.counts.failed} · Skipped: ${job.counts.skipped} · Total: ${job.items.length}`;
 
   const files = card.querySelector(".job-files");
   const multi = job.items.length > 1;

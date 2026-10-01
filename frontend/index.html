@@ -9,6 +9,7 @@
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path fill='%236366f1' d='M12 3v10.6l3.3-3.3 1.4 1.4L12 16.4l-4.7-4.7 1.4-1.4 3.3 3.3V3h2zM5 19h14v2H5z'/></svg>">
 <link rel="stylesheet" href="style.css">
 <script src="config.js"></script>
+<script src="detect.js" defer></script>
 <script src="app.js" defer></script>
 </head>
 <body>
@@ -23,10 +24,12 @@
   <form id="analyze-form" class="card" autocomplete="off">
     <label for="url">Paste media URL</label>
     <div class="row">
-      <input id="url" type="url" inputmode="url" placeholder="https://..." required maxlength="2048">
+      <input id="url" type="text" inputmode="url" placeholder="https://..." required maxlength="4096" autocapitalize="off" spellcheck="false">
       <button id="analyze" class="primary" type="submit">Analyze</button>
     </div>
-    <p class="hint">YouTube · SoundCloud · Spotify (metadata only)</p>
+    <div id="detect" class="detect" aria-live="polite" hidden></div>
+    <p id="multi" class="hint" hidden>Multiple URLs detected. Using the first URL.</p>
+    <p class="hint">YouTube · SoundCloud · Spotify (metadata only). Paste a link or share text — it is detected automatically.</p>
   </form>
 
   <div id="error" class="banner error" role="alert" hidden></div>
@@ -56,6 +59,7 @@
         <label class="check"><input id="select-all" type="checkbox" checked> Select all</label>
         <span id="selected-count"></span>
       </div>
+      <p id="availability" class="banner warn" hidden></p>
       <p id="limit-warning" class="banner warn" hidden></p>
       <ol id="entries" class="entries"></ol>
     </div>
@@ -83,6 +87,7 @@
       <span class="pill"></span>
     </div>
     <div class="bar"><div></div></div>
+    <p class="job-counts hint" hidden></p>
     <p class="job-error error-text" hidden></p>
     <ul class="job-files"></ul>
     <div class="job-actions">

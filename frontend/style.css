@@ -32,11 +32,16 @@ a { color: var(--accent); }
 .card.small { font-size: .9rem; color: var(--muted); }
 label { display: block; font-weight: 600; margin-bottom: 6px; }
 .row { display: flex; gap: 8px; }
-input[type=url], select {
+input[type=url], input[type=text], select {
   width: 100%; min-height: 46px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border);
   background: var(--bg); color: var(--text); font: inherit;
 }
-input[type=url] { flex: 1; min-width: 0; }
+#url { flex: 1; min-width: 0; }
+.detect { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 8px; font-size: .9rem; }
+.detect .dim { color: var(--muted); }
+.error-text.inline { margin: 0; }
+.error-text.block { display: block; margin: 2px 0 0; font-size: .8rem; }
+.entries li.unavailable { opacity: .65; }
 button, a.primary {
   min-height: 46px; padding: 10px 16px; border-radius: 10px; border: 1px solid var(--border);
   background: var(--card); color: var(--text); font: inherit; font-weight: 600; cursor: pointer; text-decoration: none;
